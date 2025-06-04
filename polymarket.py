@@ -110,7 +110,7 @@ class PolymarketFetcher:
             # Try different API parameters to match website behavior
             url = f"{self.base_url}{self.markets_endpoint}"
             params = {
-                'order': 'volume24hr',  # Try 24hr volume instead of total volume
+                'order': 'volumeNum',  # Use volumeNum instead of volume for proper sorting
                 'ascending': 'false',
                 'limit': n * 3,  # Fetch more to account for filtering
                 'closed': 'false',
@@ -155,10 +155,17 @@ class PolymarketFetcher:
                 print(f"HTTP Error: {e}")
                 print(f"Response body: {response.text[:500]}...")
                 
-                # If 24hr volume doesn't work, try regular volume ordering
-                print("Trying with regular 'volume' parameter...")
-                params['order'] = 'volume'
+                # If volumeNum doesn't work, try volumeClob as fallback
+                print("Trying with 'volumeClob' parameter as fallback...")
+                params['order'] = 'volumeClob'
                 response = requests.get(url, headers=self.headers, params=params, timeout=30)
+                
+                # If that also fails, try 'volume24hr' as last resort
+                if response.status_code != 200:
+                    print("Trying with 'volume24hr' parameter as final fallback...")
+                    params['order'] = 'volume24hr'
+                    response = requests.get(url, headers=self.headers, params=params, timeout=30)
+                    
                 response.raise_for_status()
             
             try:
@@ -227,8 +234,9 @@ class PolymarketFetcher:
         
         try:
             url = f"{self.base_url}{self.events_endpoint}"
+            # Try sorting by total volume first
             params = {
-                'order': 'volume24hr',
+                'order': 'volume',  # Try total volume first
                 'ascending': 'false',
                 'limit': n * 2,
                 'closed': 'false',
@@ -253,9 +261,17 @@ class PolymarketFetcher:
             try:
                 response.raise_for_status()
             except requests.exceptions.HTTPError as e:
-                print(f"Events API HTTP Error: {e}")
+                print(f"Events API HTTP Error with 'volume' parameter: {e}")
                 print(f"Response body: {response.text[:500]}...")
-                return []
+                
+                # Fallback to volume24hr if volume doesn't work
+                print("Trying with 'volume24hr' parameter as fallback...")
+                params['order'] = 'volume24hr'
+                response = requests.get(url, headers=self.headers, params=params, timeout=30)
+                
+                if response.status_code != 200:
+                    print(f"Events API failed with volume24hr too. Status: {response.status_code}")
+                    return []
             
             try:
                 events = response.json()
@@ -298,25 +314,73 @@ class PolymarketFetcher:
     def parse_market_data(self, market: Dict, rank: int) -> Dict:
         """Parse and extract relevant market data from Gamma API response"""
         try:
-            # Extract volume - try different volume fields
-            volume = 0
-            volume_fields_to_try = [
-                'volume24hr', 'volume_24hr', 'volume_24h', 'dailyVolume', 'daily_volume',
-                'volume', 'totalVolume', 'total_volume', 'volumeUSD', 'volume_usd'
+            # Extract total volume (prioritize this for main display)
+            total_volume = 0
+            total_volume_fields = [
+                'volume', 'totalVolume', 'total_volume', 'volumeNum', 'volume_num',
+                'cumulativeVolume', 'cumulative_volume', 'allTimeVolume', 'all_time_volume',
+                'volumeUSD', 'volume_usd', 'volumeClob'
             ]
             
-            for field in volume_fields_to_try:
+            for field in total_volume_fields:
                 if market.get(field) is not None:
                     try:
-                        volume = float(market.get(field, 0))
-                        print(f"Using volume field '{field}': {volume}")
-                        break
+                        # Handle both string and numeric values
+                        val = market.get(field, 0)
+                        if isinstance(val, str):
+                            total_volume = float(val)
+                        else:
+                            total_volume = float(val)
+                        
+                        if total_volume > 0:
+                            print(f"Using total volume field '{field}': ${total_volume:,.2f}")
+                            break
                     except (ValueError, TypeError):
                         continue
+            
+            # Extract 24h volume separately
+            volume_24h = 0
+            volume_24h_fields = [
+                'volume24hr', 'volume_24hr', 'volume_24h', 'dailyVolume', 'daily_volume',
+                'volume24hrClob', 'volume24Hour', 'volume_24_hour'
+            ]
+            
+            for field in volume_24h_fields:
+                if market.get(field) is not None:
+                    try:
+                        # Handle both string and numeric values
+                        val = market.get(field, 0)
+                        if isinstance(val, str):
+                            volume_24h = float(val)
+                        else:
+                            volume_24h = float(val)
+                            
+                        if volume_24h > 0:
+                            print(f"Found 24h volume field '{field}': ${volume_24h:,.2f}")
+                            break
+                    except (ValueError, TypeError):
+                        continue
+            
+            # Use total volume as primary if available, otherwise fall back to 24h
+            volume = total_volume if total_volume > 0 else volume_24h
+            volume_type = 'total' if total_volume > 0 else '24h'
+            volume_field_used = field  # Keep track of which field we used
             
             if volume == 0:
                 print(f"WARNING: No valid volume found for market {rank}")
                 print(f"Available fields: {list(market.keys())}")
+                # Debug: print all numeric fields that might contain volume
+                numeric_fields = {}
+                for key, value in market.items():
+                    if isinstance(value, (int, float, str)):
+                        try:
+                            num_val = float(value) if isinstance(value, str) else value
+                            if num_val > 1000:  # Values > $1000
+                                numeric_fields[key] = num_val
+                        except:
+                            pass
+                if numeric_fields:
+                    print(f"Numeric fields > $1000: {numeric_fields}")
             
             # Improved date parsing with more field options
             created_at = None
@@ -457,6 +521,16 @@ class PolymarketFetcher:
                                     category = cat
                                     break
             
+            # Handle liquidity as string or number
+            liquidity_val = market.get('liquidity_num', 0) or market.get('liquidity', 0) or 0
+            if isinstance(liquidity_val, str):
+                try:
+                    liquidity_val = float(liquidity_val)
+                except:
+                    liquidity_val = 0
+            else:
+                liquidity_val = float(liquidity_val)
+            
             # Extract other metadata
             parsed_data = {
                 'rank': rank,
@@ -464,7 +538,11 @@ class PolymarketFetcher:
                 'market_slug': market.get('slug', ''),
                 'market_id': market.get('id', ''),
                 'condition_id': market.get('condition_id', ''),
-                'volume_usd': volume,
+                'volume_usd': volume,  # Primary volume field (total if available, otherwise 24h)
+                'volume_type': volume_type,  # 'total' or '24h'
+                'volume_field_used': volume_field_used,  # For debugging
+                'volume_24h': volume_24h,  # Already extracted above
+                'volume_total': total_volume,  # Already extracted above
                 'category': category,
                 'created_at': created_at,
                 'end_date': end_date,
@@ -473,9 +551,24 @@ class PolymarketFetcher:
                 'closed': is_closed,
                 'description': market.get('description', '') or market.get('market_description', ''),
                 'outcomes': market.get('outcomes') or market.get('outcome_options') or [],
-                'liquidity': float(market.get('liquidity_num', 0) or market.get('liquidity', 0) or 0),
-                'url': f"https://polymarket.com/event/{market.get('slug', '')}" if market.get('slug') else ''
+                'liquidity': liquidity_val,
+                'url': ''  # Will set this below based on type
             }
+            
+            # Generate correct URL based on whether this is a market or event
+            slug = market.get('slug', '')
+            if slug:
+                # Check if this is an event (has markets field) or individual market
+                if market.get('markets') or market.get('market_count'):
+                    # This is an event
+                    parsed_data['url'] = f"https://polymarket.com/event/{slug}"
+                else:
+                    # This is an individual market
+                    parsed_data['url'] = f"https://polymarket.com/market/{slug}"
+            else:
+                # Fallback: try to use condition_id for market URL
+                if parsed_data['condition_id']:
+                    parsed_data['url'] = f"https://polymarket.com/market/{parsed_data['condition_id']}"
             
             # Log missing critical fields
             missing_fields = []
@@ -536,9 +629,9 @@ URL: {market['url']}
         if not markets:
             return
         
-        # Define CSV headers
+        # Define CSV headers - include both volume fields
         headers = [
-            'rank', 'title', 'volume_usd', 'status', 'category', 
+            'rank', 'title', 'volume_total', 'volume_24h', 'status', 'category', 
             'created_at', 'end_date', 'url', 'liquidity', 'market_id'
         ]
         
@@ -547,10 +640,23 @@ URL: {market['url']}
             writer.writeheader()
             
             for market in markets:
+                # Determine total volume (use volume_total if available, otherwise volume_usd)
+                total_volume = market.get('volume_total', market.get('volume_usd', 0))
+                
+                # Get 24h volume
+                volume_24h = market.get('volume_24h', 0)
+                
+                # If we only have one type of volume, try to determine which it is
+                if volume_24h == 0 and market.get('volume_type') == '24h':
+                    # volume_usd is actually 24h volume
+                    volume_24h = market.get('volume_usd', 0)
+                    total_volume = 0  # We don't have total volume
+                
                 row = {
                     'rank': market['rank'],
                     'title': market['title'],
-                    'volume_usd': market['volume_usd'],
+                    'volume_total': total_volume,
+                    'volume_24h': volume_24h,
                     'status': 'Closed' if market['closed'] else ('Inactive' if not market['active'] else 'Active'),
                     'category': market['category'],
                     'created_at': market['created_at'],

@@ -44,12 +44,17 @@
         .result-container {
             margin-top: 30px;
         }
+        /* Expand container for wider tables */
+        .container {
+            max-width: 1400px !important;
+        }
         .data-table {
             margin-top: 20px;
             overflow-x: auto;
         }
         .data-table table {
-            min-width: 1200px;
+            min-width: 1400px;
+            font-size: 14px;
         }
         .data-table th {
             background-color: #3f51b5;
@@ -58,13 +63,23 @@
             position: sticky;
             top: 0;
             z-index: 10;
+            padding: 8px 12px;
         }
         .data-table td {
             white-space: nowrap;
+            padding: 6px 10px;
+        }
+        /* Make title column wrap for long titles */
+        .data-table td:nth-child(2) {
+            white-space: normal;
+            max-width: 300px;
+            min-width: 200px;
         }
         .table-responsive-wrapper {
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
         }
         .error-message {
             color: #d32f2f;
@@ -83,6 +98,33 @@
         }
         .date-preset-btn {
             margin: 2px;
+        }
+        /* Compact number formatting for better space usage */
+        .volume-cell {
+            text-align: right;
+        }
+        /* Make the results card full width */
+        .result-container .card {
+            width: 100%;
+        }
+        .result-container .card-body {
+            padding: 15px;
+        }
+        /* Sticky link column */
+        .data-table th:last-child,
+        .data-table td:last-child {
+            position: sticky;
+            right: 0;
+            background-color: white;
+            box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1);
+            z-index: 5;
+        }
+        .data-table th:last-child {
+            background-color: #3f51b5;
+        }
+        /* Add some visual separation for the sticky column */
+        .data-table td:last-child {
+            border-left: 1px solid #dee2e6;
         }
     </style>
 </head>
@@ -151,22 +193,22 @@
             <div class="card">
                 <div class="card-body">
                     <h5 class="card-title">Results</h5>
-                    <button id="downloadBtn" class="btn btn-success">Download CSV</button>
-                    
-                    <div class="mb-3">
-                        <div class="row">
-                            <div class="col-md-4">
-                                <label for="categoryFilter" class="form-label">Filter by Category:</label>
-                                <select id="categoryFilter" class="form-select">
-                                    <option value="all">All Categories</option>
-                                </select>
-                            </div>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <button id="downloadBtn" class="btn btn-success">Download CSV</button>
+                            <small class="text-muted ms-3">Hover over values to see full amounts</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="categoryFilter" class="form-label">Filter by Category:</label>
+                            <select id="categoryFilter" class="form-select">
+                                <option value="all">All Categories</option>
+                            </select>
                         </div>
                     </div>
                     
                     <div class="data-table">
                         <div class="table-responsive-wrapper">
-                            <table class="table table-striped" id="dataTable">
+                            <table class="table table-striped table-hover" id="dataTable">
                                 <thead>
                                     <tr>
                                         <th>Rank</th>
@@ -370,39 +412,47 @@
                         // Rank
                         const tdRank = document.createElement('td');
                         tdRank.textContent = item.rank;
+                        tdRank.style.textAlign = 'center';
                         tr.appendChild(tdRank);
                         
                         // Title
                         const tdTitle = document.createElement('td');
                         tdTitle.textContent = item.title;
+                        tdTitle.title = item.title; // Show full title on hover
                         tr.appendChild(tdTitle);
                         
-                        // Total Volume
+                        // Total Volume - format compactly
                         const tdTotalVolume = document.createElement('td');
                         const totalVolume = item.volume_total || item.volume_usd || 0;
-                        tdTotalVolume.textContent = `$${totalVolume.toLocaleString('en-US', {
+                        tdTotalVolume.textContent = formatCompactNumber(totalVolume);
+                        tdTotalVolume.className = 'volume-cell';
+                        tdTotalVolume.title = `$${totalVolume.toLocaleString('en-US', {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2
                         })}`;
                         tr.appendChild(tdTotalVolume);
                         
-                        // 24h Volume
+                        // 24h Volume - format compactly
                         const td24hVolume = document.createElement('td');
                         const volume24h = item.volume_24h || 0;
                         if (volume24h > 0) {
-                            td24hVolume.textContent = `$${volume24h.toLocaleString('en-US', {
+                            td24hVolume.textContent = formatCompactNumber(volume24h);
+                            td24hVolume.title = `$${volume24h.toLocaleString('en-US', {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2
                             })}`;
                         } else {
                             td24hVolume.textContent = '-';
                         }
+                        td24hVolume.className = 'volume-cell';
                         tr.appendChild(td24hVolume);
                         
-                        // Liquidity
+                        // Liquidity - format compactly
                         const tdLiquidity = document.createElement('td');
                         const liquidity = item.liquidity || 0;
-                        tdLiquidity.textContent = `$${liquidity.toLocaleString('en-US', {
+                        tdLiquidity.textContent = formatCompactNumber(liquidity);
+                        tdLiquidity.className = 'volume-cell';
+                        tdLiquidity.title = `$${liquidity.toLocaleString('en-US', {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2
                         })}`;
@@ -416,13 +466,15 @@
                         // Markets
                         const tdMarkets = document.createElement('td');
                         tdMarkets.textContent = item.market_count !== undefined ? item.market_count : '-';
+                        tdMarkets.style.textAlign = 'center';
                         tr.appendChild(tdMarkets);
                         
                         // Created
                         const tdCreated = document.createElement('td');
                         if (item.created_at) {
                             try {
-                                tdCreated.textContent = new Date(item.created_at).toLocaleDateString();
+                                const date = new Date(item.created_at);
+                                tdCreated.textContent = `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
                             } catch (e) {
                                 tdCreated.textContent = item.created_at;
                             }
@@ -435,7 +487,8 @@
                         const tdEndDate = document.createElement('td');
                         if (item.end_date) {
                             try {
-                                tdEndDate.textContent = new Date(item.end_date).toLocaleDateString();
+                                const date = new Date(item.end_date);
+                                tdEndDate.textContent = `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
                             } catch (e) {
                                 tdEndDate.textContent = item.end_date;
                             }
@@ -448,11 +501,15 @@
                         const tdStatus = document.createElement('td');
                         if (item.closed || item.is_closed) {
                             tdStatus.textContent = 'Closed';
+                            tdStatus.style.color = '#d32f2f';
                         } else if (!item.active && !item.is_active) {
                             tdStatus.textContent = 'Inactive';
+                            tdStatus.style.color = '#f57c00';
                         } else {
                             tdStatus.textContent = 'Active';
+                            tdStatus.style.color = '#388e3c';
                         }
+                        tdStatus.style.fontWeight = 'bold';
                         tr.appendChild(tdStatus);
                         
                         // Link
@@ -460,7 +517,7 @@
                         if (item.url) {
                             const link = document.createElement('a');
                             link.href = item.url;
-                            link.textContent = 'View';
+                            link.textContent = '🔗';
                             link.target = '_blank';
                             link.className = 'btn btn-sm btn-outline-primary';
                             tdLink.appendChild(link);
@@ -471,6 +528,19 @@
                         
                         tableBody.appendChild(tr);
                     });
+                }
+                
+                // Helper function to format large numbers compactly
+                function formatCompactNumber(num) {
+                    if (num >= 1000000000) {
+                        return `$${(num / 1000000000).toFixed(2)}B`;
+                    } else if (num >= 1000000) {
+                        return `$${(num / 1000000).toFixed(2)}M`;
+                    } else if (num >= 1000) {
+                        return `$${(num / 1000).toFixed(1)}K`;
+                    } else {
+                        return `$${num.toFixed(0)}`;
+                    }
                 }
                 
                 // Set current filename for download

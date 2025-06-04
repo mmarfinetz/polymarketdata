@@ -63,14 +63,19 @@ def health():
 @app.route('/fetch_markets', methods=['POST'])
 def fetch_markets():
     try:
+        # Get date parameters from request
+        data = request.get_json() or {}
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        
         # Set higher timeouts for serverless environment
-        logger.info("Fetching top markets by volume")
+        logger.info(f"Fetching top markets by volume (start_date: {start_date}, end_date: {end_date})")
         fetcher = PolymarketFetcher()
         
         # In a serverless environment, we need to be mindful of timeouts
         # Log the start of the operation
         logger.info("Starting markets API request...")
-        raw_markets = fetcher.fetch_top_markets_by_volume(50)
+        raw_markets = fetcher.fetch_top_markets_by_volume(50, start_date=start_date, end_date=end_date)
         logger.info(f"Received markets API response with {len(raw_markets) if raw_markets else 0} markets")
         
         if not raw_markets:
@@ -90,7 +95,12 @@ def fetch_markets():
             market['rank'] = i
         
         # Save data to CSV - use temp directory for serverless environment
-        filename = os.path.join(temp_dir, "polymarket_top50.csv")
+        date_suffix = ""
+        if start_date:
+            date_suffix = f"_{start_date}"
+        if end_date:
+            date_suffix += f"_to_{end_date}"
+        filename = os.path.join(temp_dir, f"polymarket_top50{date_suffix}.csv")
         fetcher.save_to_csv(top_markets, filename)
         
         # Ensure required fields are present in each market
@@ -107,7 +117,7 @@ def fetch_markets():
             "success": True, 
             "message": f"Successfully fetched {len(top_markets)} markets", 
             "markets": top_markets,
-            "filename": filename
+            "filename": os.path.basename(filename)
         })
     except Exception as e:
         error_msg = str(e)
@@ -118,14 +128,19 @@ def fetch_markets():
 @app.route('/fetch_events', methods=['POST'])
 def fetch_events():
     try:
+        # Get date parameters from request
+        data = request.get_json() or {}
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        
         # Set higher timeouts for serverless environment
-        logger.info("Fetching top events by volume")
+        logger.info(f"Fetching top events by volume (start_date: {start_date}, end_date: {end_date})")
         fetcher = PolymarketEventsFetcher()
         
         # In a serverless environment, we need to be mindful of timeouts
         # Log the start of the operation
         logger.info("Starting events API request...")
-        raw_events = fetcher.fetch_top_events_by_volume(50)
+        raw_events = fetcher.fetch_top_events_by_volume(50, start_date=start_date, end_date=end_date)
         logger.info(f"Received events API response with {len(raw_events) if raw_events else 0} events")
         
         if not raw_events:
@@ -145,7 +160,12 @@ def fetch_events():
             event['rank'] = i
         
         # Save data to CSV - use temp directory for serverless environment
-        filename = os.path.join(temp_dir, "polymarket_top50_events.csv")
+        date_suffix = ""
+        if start_date:
+            date_suffix = f"_{start_date}"
+        if end_date:
+            date_suffix += f"_to_{end_date}"
+        filename = os.path.join(temp_dir, f"polymarket_top50_events{date_suffix}.csv")
         fetcher.save_to_csv(top_events, filename)
         
         # Ensure required fields are present in each event
@@ -165,7 +185,7 @@ def fetch_events():
             "success": True, 
             "message": f"Successfully fetched {len(top_events)} events", 
             "events": top_events,
-            "filename": filename
+            "filename": os.path.basename(filename)
         })
     except Exception as e:
         error_msg = str(e)
@@ -173,14 +193,18 @@ def fetch_events():
         logger.error(traceback.format_exc())
         return jsonify({"error": error_msg}), 500
 
-@app.route('/download/<filename>')
+@app.route('/download/<path:filename>')
 def download_file(filename):
-    if filename not in ["polymarket_top50.csv", "polymarket_top50_events.csv"]:
+    # Sanitize filename to prevent directory traversal
+    safe_filename = os.path.basename(filename)
+    
+    # Check if it's a valid polymarket file
+    if not (safe_filename.startswith("polymarket_top50") and safe_filename.endswith(".csv")):
         logger.warning(f"Invalid download request for file: {filename}")
         return "File not found", 404
     
     # Use the temp directory path for the file
-    file_path = os.path.join(temp_dir, filename)
+    file_path = os.path.join(temp_dir, safe_filename)
     
     if not os.path.exists(file_path):
         logger.warning(f"Requested file does not exist: {file_path}")

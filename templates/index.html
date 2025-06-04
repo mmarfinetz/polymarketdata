@@ -46,10 +46,25 @@
         }
         .data-table {
             margin-top: 20px;
+            overflow-x: auto;
+        }
+        .data-table table {
+            min-width: 1200px;
         }
         .data-table th {
             background-color: #3f51b5;
             color: white;
+            white-space: nowrap;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .data-table td {
+            white-space: nowrap;
+        }
+        .table-responsive-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }
         .error-message {
             color: #d32f2f;
@@ -60,6 +75,15 @@
             border-radius: 5px;
             border-left: 5px solid #d32f2f;
         }
+        .date-filter-section {
+            background-color: #e3f2fd;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .date-preset-btn {
+            margin: 2px;
+        }
     </style>
 </head>
 <body>
@@ -67,6 +91,33 @@
         <div class="header">
             <h1>Polymarket Data Fetcher</h1>
             <p class="lead">Retrieve top markets and events data from Polymarket</p>
+        </div>
+        
+        <!-- Date Filter Section -->
+        <div class="date-filter-section">
+            <h5>Date Range Filter (Optional)</h5>
+            <p class="text-muted">Select a date range to view historical top markets and events. Leave empty for current data.</p>
+            
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <label for="startDate" class="form-label">Start Date</label>
+                    <input type="date" class="form-control" id="startDate">
+                </div>
+                <div class="col-md-4">
+                    <label for="endDate" class="form-label">End Date</label>
+                    <input type="date" class="form-control" id="endDate">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Quick Presets</label>
+                    <div>
+                        <button class="btn btn-sm btn-outline-primary date-preset-btn" onclick="setDatePreset('today')">Today</button>
+                        <button class="btn btn-sm btn-outline-primary date-preset-btn" onclick="setDatePreset('yesterday')">Yesterday</button>
+                        <button class="btn btn-sm btn-outline-primary date-preset-btn" onclick="setDatePreset('week')">Last 7 Days</button>
+                        <button class="btn btn-sm btn-outline-primary date-preset-btn" onclick="setDatePreset('month')">Last 30 Days</button>
+                        <button class="btn btn-sm btn-outline-primary date-preset-btn" onclick="setDatePreset('clear')">Clear</button>
+                    </div>
+                </div>
+            </div>
         </div>
         
         <div class="row">
@@ -114,20 +165,28 @@
                     </div>
                     
                     <div class="data-table">
-                        <table class="table table-striped" id="dataTable">
-                            <thead>
-                                <tr>
-                                    <th>Rank</th>
-                                    <th>Title</th>
-                                    <th>Volume</th>
-                                    <th>Category</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tableBody">
-                                <!-- Data will be inserted here -->
-                            </tbody>
-                        </table>
+                        <div class="table-responsive-wrapper">
+                            <table class="table table-striped" id="dataTable">
+                                <thead>
+                                    <tr>
+                                        <th>Rank</th>
+                                        <th>Title</th>
+                                        <th>Total Volume</th>
+                                        <th>24h Volume</th>
+                                        <th>Liquidity</th>
+                                        <th>Category</th>
+                                        <th>Markets</th>
+                                        <th>Created</th>
+                                        <th>End Date</th>
+                                        <th>Status</th>
+                                        <th>Link</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tableBody">
+                                    <!-- Data will be inserted here -->
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -136,6 +195,49 @@
 
     <script>
         let currentFilename = '';
+        
+        // Date preset functions
+        function setDatePreset(preset) {
+            const startDateInput = document.getElementById('startDate');
+            const endDateInput = document.getElementById('endDate');
+            const today = new Date();
+            
+            switch(preset) {
+                case 'today':
+                    startDateInput.value = formatDate(today);
+                    endDateInput.value = formatDate(today);
+                    break;
+                case 'yesterday':
+                    const yesterday = new Date(today);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    startDateInput.value = formatDate(yesterday);
+                    endDateInput.value = formatDate(yesterday);
+                    break;
+                case 'week':
+                    const weekAgo = new Date(today);
+                    weekAgo.setDate(weekAgo.getDate() - 7);
+                    startDateInput.value = formatDate(weekAgo);
+                    endDateInput.value = formatDate(today);
+                    break;
+                case 'month':
+                    const monthAgo = new Date(today);
+                    monthAgo.setDate(monthAgo.getDate() - 30);
+                    startDateInput.value = formatDate(monthAgo);
+                    endDateInput.value = formatDate(today);
+                    break;
+                case 'clear':
+                    startDateInput.value = '';
+                    endDateInput.value = '';
+                    break;
+            }
+        }
+        
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
         
         document.getElementById('fetchMarkets').addEventListener('click', function() {
             fetchData('/fetch_markets');
@@ -158,6 +260,10 @@
             const errorContainer = document.getElementById('errorContainer');
             const tableBody = document.getElementById('tableBody');
             
+            // Get date values
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
             // Reset UI
             loader.style.display = 'block';
             resultContainer.style.display = 'none';
@@ -168,12 +274,18 @@
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 second timeout - serverless functions may take longer
                 
+                // Prepare request body
+                const requestBody = {};
+                if (startDate) requestBody.start_date = startDate;
+                if (endDate) requestBody.end_date = endDate;
+                
                 const response = await fetch(endpoint, {
                     method: 'POST',
                     signal: controller.signal,
                     headers: {
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    body: JSON.stringify(requestBody)
                 });
                 
                 clearTimeout(timeoutId);
@@ -189,7 +301,18 @@
                 }
                 
                 // Update result message
-                resultMessage.textContent = data.message;
+                let dateRangeText = '';
+                if (startDate || endDate) {
+                    dateRangeText = ' for ';
+                    if (startDate && endDate) {
+                        dateRangeText += `${startDate} to ${endDate}`;
+                    } else if (startDate) {
+                        dateRangeText += `from ${startDate}`;
+                    } else {
+                        dateRangeText += `until ${endDate}`;
+                    }
+                }
+                resultMessage.textContent = data.message + dateRangeText;
                 
                 // Clear table
                 tableBody.innerHTML = '';
@@ -254,18 +377,72 @@
                         tdTitle.textContent = item.title;
                         tr.appendChild(tdTitle);
                         
-                        // Volume
-                        const tdVolume = document.createElement('td');
-                        tdVolume.textContent = `$${item.volume_usd.toLocaleString('en-US', {
+                        // Total Volume
+                        const tdTotalVolume = document.createElement('td');
+                        const totalVolume = item.volume_total || item.volume_usd || 0;
+                        tdTotalVolume.textContent = `$${totalVolume.toLocaleString('en-US', {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2
                         })}`;
-                        tr.appendChild(tdVolume);
+                        tr.appendChild(tdTotalVolume);
+                        
+                        // 24h Volume
+                        const td24hVolume = document.createElement('td');
+                        const volume24h = item.volume_24h || 0;
+                        if (volume24h > 0) {
+                            td24hVolume.textContent = `$${volume24h.toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            })}`;
+                        } else {
+                            td24hVolume.textContent = '-';
+                        }
+                        tr.appendChild(td24hVolume);
+                        
+                        // Liquidity
+                        const tdLiquidity = document.createElement('td');
+                        const liquidity = item.liquidity || 0;
+                        tdLiquidity.textContent = `$${liquidity.toLocaleString('en-US', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                        })}`;
+                        tr.appendChild(tdLiquidity);
                         
                         // Category
                         const tdCategory = document.createElement('td');
                         tdCategory.textContent = item.category || 'Uncategorized';
                         tr.appendChild(tdCategory);
+                        
+                        // Markets
+                        const tdMarkets = document.createElement('td');
+                        tdMarkets.textContent = item.market_count !== undefined ? item.market_count : '-';
+                        tr.appendChild(tdMarkets);
+                        
+                        // Created
+                        const tdCreated = document.createElement('td');
+                        if (item.created_at) {
+                            try {
+                                tdCreated.textContent = new Date(item.created_at).toLocaleDateString();
+                            } catch (e) {
+                                tdCreated.textContent = item.created_at;
+                            }
+                        } else {
+                            tdCreated.textContent = '-';
+                        }
+                        tr.appendChild(tdCreated);
+                        
+                        // End Date
+                        const tdEndDate = document.createElement('td');
+                        if (item.end_date) {
+                            try {
+                                tdEndDate.textContent = new Date(item.end_date).toLocaleDateString();
+                            } catch (e) {
+                                tdEndDate.textContent = item.end_date;
+                            }
+                        } else {
+                            tdEndDate.textContent = '-';
+                        }
+                        tr.appendChild(tdEndDate);
                         
                         // Status
                         const tdStatus = document.createElement('td');
@@ -277,6 +454,20 @@
                             tdStatus.textContent = 'Active';
                         }
                         tr.appendChild(tdStatus);
+                        
+                        // Link
+                        const tdLink = document.createElement('td');
+                        if (item.url) {
+                            const link = document.createElement('a');
+                            link.href = item.url;
+                            link.textContent = 'View';
+                            link.target = '_blank';
+                            link.className = 'btn btn-sm btn-outline-primary';
+                            tdLink.appendChild(link);
+                        } else {
+                            tdLink.textContent = '-';
+                        }
+                        tr.appendChild(tdLink);
                         
                         tableBody.appendChild(tr);
                     });

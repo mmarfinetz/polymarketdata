@@ -20,14 +20,22 @@ class PolymarketEventsFetcher:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
     
-    def fetch_top_events_by_volume(self, n: int = 50) -> List[Dict]:
-        """Fetch top N events by 24h volume from Polymarket Gamma Events API"""
-        print(f"Fetching top {n} events by 24h volume from Polymarket Gamma Events API...")
+    def fetch_top_events_by_volume(self, n: int = 50, start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Dict]:
+        """Fetch top N events by total volume from Polymarket Gamma Events API
+        
+        Args:
+            n: Number of events to fetch
+            start_date: Start date in ISO format (YYYY-MM-DD) for filtering events
+            end_date: End date in ISO format (YYYY-MM-DD) for filtering events
+        """
+        print(f"Fetching top {n} events by total volume from Polymarket Gamma Events API...")
+        if start_date:
+            print(f"Filtering events from {start_date} to {end_date or 'now'}")
         
         try:
             url = f"{self.base_url}{self.events_endpoint}"
             params = {
-                'order': 'volume24hr',
+                'order': 'volume',  # Changed from 'volume24hr' to 'volume' for total volume
                 'ascending': 'false',
                 'limit': n * 2,  # Fetch more to account for filtering
                 'closed': 'false',
@@ -38,6 +46,23 @@ class PolymarketEventsFetcher:
                 'include_timestamps': 'true',
                 'end_date_min': int(datetime.now().timestamp())
             }
+            
+            # Add date filtering parameters if provided
+            if start_date:
+                try:
+                    start_dt = datetime.fromisoformat(start_date)
+                    params['created_at_min'] = int(start_dt.timestamp())
+                except ValueError:
+                    print(f"Warning: Invalid start_date format: {start_date}")
+            
+            if end_date:
+                try:
+                    end_dt = datetime.fromisoformat(end_date)
+                    params['created_at_max'] = int(end_dt.timestamp())
+                    # Also update end_date_min to show events that were active during this period
+                    params['end_date_min'] = int(end_dt.timestamp())
+                except ValueError:
+                    print(f"Warning: Invalid end_date format: {end_date}")
             
             print(f"Requesting Events URL: {url}")
             print(f"Request parameters: {json.dumps(params, indent=2)}")
@@ -54,7 +79,12 @@ class PolymarketEventsFetcher:
             except requests.exceptions.HTTPError as e:
                 print(f"Events API HTTP Error: {e}")
                 print(f"Response body: {response.text[:500]}...")
-                return []
+                
+                # If total volume doesn't work, try 24hr volume as fallback
+                print("Trying with 'volume24hr' parameter as fallback...")
+                params['order'] = 'volume24hr'
+                response = requests.get(url, headers=self.headers, params=params, timeout=30)
+                response.raise_for_status()
             
             try:
                 events = response.json()
@@ -66,6 +96,15 @@ class PolymarketEventsFetcher:
             if isinstance(events, list) and len(events) > 0:
                 print(f"Successfully fetched {len(events)} events")
                 print(f"First event title: {events[0].get('title', 'N/A')}")
+                
+                # Debug: Print volume fields for first event
+                first_event = events[0]
+                print("\n=== DEBUG: First event volume fields ===")
+                for key in first_event.keys():
+                    if 'volume' in key.lower():
+                        print(f"{key}: {first_event.get(key)}")
+                print("=====================================\n")
+                
                 return events
             elif isinstance(events, dict) and 'events' in events:
                 events_list = events.get('events', [])
@@ -156,23 +195,47 @@ class PolymarketEventsFetcher:
     def parse_event_data(self, event: Dict, rank: int) -> Dict:
         """Parse and extract relevant event data from Gamma Events API response"""
         try:
-            # Extract 24h volume
-            volume = 0
-            volume_fields_to_try = [
-                'volume24hr', 'volume_24hr', 'volume_24h', 'dailyVolume', 'daily_volume',
-                'volume', 'totalVolume', 'total_volume', 'volumeUSD', 'volume_usd'
+            # Extract total volume (prioritize this for main display)
+            total_volume = 0
+            total_volume_fields = [
+                'volume', 'totalVolume', 'total_volume', 'volumeNum', 'volume_num',
+                'cumulativeVolume', 'cumulative_volume', 'allTimeVolume', 'all_time_volume'
             ]
             
-            for field in volume_fields_to_try:
+            for field in total_volume_fields:
                 if event.get(field) is not None:
                     try:
-                        volume = float(event.get(field, 0))
-                        break
+                        total_volume = float(event.get(field, 0))
+                        if total_volume > 0:
+                            print(f"Using total volume field '{field}': ${total_volume:,.2f}")
+                            break
                     except (ValueError, TypeError):
                         continue
             
+            # Extract 24h volume separately
+            volume_24h = 0
+            volume_24h_fields = [
+                'volume24hr', 'volume_24hr', 'volume_24h', 'dailyVolume', 'daily_volume',
+                'volume24Hour', 'volume_24_hour'
+            ]
+            
+            for field in volume_24h_fields:
+                if event.get(field) is not None:
+                    try:
+                        volume_24h = float(event.get(field, 0))
+                        if volume_24h > 0:
+                            print(f"Found 24h volume field '{field}': ${volume_24h:,.2f}")
+                            break
+                    except (ValueError, TypeError):
+                        continue
+            
+            # Use total volume as primary, fall back to 24h if no total volume found
+            volume = total_volume if total_volume > 0 else volume_24h
+            
             if volume == 0:
                 print(f"WARNING: No valid volume found for event {rank}")
+                # Print all available fields for debugging
+                print(f"Available fields: {list(event.keys())}")
             
             # Extract dates
             created_at = None
@@ -195,9 +258,10 @@ class PolymarketEventsFetcher:
                 print(f"Skipping event {rank}: closed={is_closed}, active={is_active}")
                 return None
             
-            # Skip low volume events
-            if volume < 1000:
-                print(f"Skipping low-volume event {rank}: ${volume}")
+            # Skip low volume events (adjust threshold for total volume)
+            min_volume = 10000 if total_volume > 0 else 1000  # Higher threshold for total volume
+            if volume < min_volume:
+                print(f"Skipping low-volume event {rank}: ${volume:,.2f}")
                 return None
             
             # Validate end date
@@ -226,8 +290,9 @@ class PolymarketEventsFetcher:
                 'title': event.get('title') or event.get('question') or 'Unknown',
                 'event_slug': event.get('slug', ''),
                 'event_id': event.get('id', ''),
-                'volume_usd': volume,
-                'volume_24h': volume,  # Same as volume_usd for events
+                'volume_usd': volume,  # This will be total volume if available, otherwise 24h
+                'volume_total': total_volume,  # Explicitly store total volume
+                'volume_24h': volume_24h,  # Explicitly store 24h volume
                 'category': category,
                 'tags': tags,
                 'created_at': created_at,
@@ -250,14 +315,24 @@ class PolymarketEventsFetcher:
     
     def format_event_info(self, event: Dict) -> str:
         """Format event information for display"""
-        volume_formatted = f"${event['volume_usd']:,.2f}"
+        # Format volumes
+        total_volume = event.get('volume_total', 0)
+        volume_24h = event.get('volume_24h', 0)
+        
+        if total_volume > 0:
+            volume_display = f"Total Volume: ${total_volume:,.2f}"
+            if volume_24h > 0:
+                volume_display += f"\n24h Volume: ${volume_24h:,.2f}"
+        else:
+            volume_display = f"24h Volume: ${volume_24h:,.2f}"
+        
         created_date = event['created_at'][:10] if event['created_at'] else 'Unknown'
         
         status = "● Active" if event['is_active'] and not event['is_closed'] else "⏸ Inactive"
         
         info = f"""
 #{event['rank']}: {event['title']}
-24h Volume: {volume_formatted}
+{volume_display}
 Status: {status}
 Category: {event['category']}
 Markets: {event['market_count']}
@@ -280,9 +355,9 @@ URL: {event['url']}
         if not events:
             return
         
-        # Define CSV headers
+        # Define CSV headers - updated to include both volume fields
         headers = [
-            'rank', 'title', 'volume_24h', 'status', 'category', 
+            'rank', 'title', 'volume_total', 'volume_24h', 'status', 'category', 
             'created_at', 'end_date', 'url', 'liquidity', 'market_count', 
             'featured', 'event_id'
         ]
@@ -295,7 +370,8 @@ URL: {event['url']}
                 row = {
                     'rank': event['rank'],
                     'title': event['title'],
-                    'volume_24h': event['volume_24h'],
+                    'volume_total': event.get('volume_total', event.get('volume_usd', 0)),
+                    'volume_24h': event.get('volume_24h', 0),
                     'status': 'Closed' if event['is_closed'] else ('Inactive' if not event['is_active'] else 'Active'),
                     'category': event['category'],
                     'created_at': event['created_at'],
@@ -316,7 +392,7 @@ def main():
     fetcher = PolymarketEventsFetcher()
     
     # Fetch events
-    print("Fetching top events by 24h volume...")
+    print("Fetching top events by total volume...")
     raw_events = fetcher.fetch_top_events_by_volume(50)
     
     if not raw_events:
@@ -357,21 +433,24 @@ def main():
     
     # Display summary statistics
     total_volume = sum(e['volume_usd'] for e in top_events)
+    total_24h_volume = sum(e.get('volume_24h', 0) for e in top_events)
     categories = {}
     for event in top_events:
         cat = event['category']
         categories[cat] = categories.get(cat, 0) + 1
     
     print(f"\n{'='*60}")
-    print(f"TOP 50 POLYMARKET EVENTS BY 24H VOLUME")
+    print(f"TOP 50 POLYMARKET EVENTS BY TOTAL VOLUME")
     print(f"{'='*60}")
-    print(f"Total 24h Volume: ${total_volume:,.2f}")
+    print(f"Total Volume (All Time): ${total_volume:,.2f}")
+    if total_24h_volume > 0:
+        print(f"Total 24h Volume: ${total_24h_volume:,.2f}")
     print(f"Active Events: {len(top_events)}")
     print(f"Categories: {dict(sorted(categories.items(), key=lambda x: x[1], reverse=True))}")
     print(f"{'='*60}\n")
     
     # Display top 10 events
-    print("TOP 10 EVENTS BY 24H VOLUME:")
+    print("TOP 10 EVENTS BY TOTAL VOLUME:")
     for event in top_events[:10]:
         print(fetcher.format_event_info(event))
         print("-" * 40)

@@ -94,9 +94,17 @@ class PolymarketFetcher:
             
         return 'Uncategorized'
     
-    def fetch_top_markets_by_volume(self, n: int = 50) -> List[Dict]:
-        """Fetch top N markets by volume from Gamma Markets API"""
+    def fetch_top_markets_by_volume(self, n: int = 50, start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Dict]:
+        """Fetch top N markets by volume from Gamma Markets API
+        
+        Args:
+            n: Number of markets to fetch
+            start_date: Start date in ISO format (YYYY-MM-DD) for filtering markets
+            end_date: End date in ISO format (YYYY-MM-DD) for filtering markets
+        """
         print(f"Fetching top {n} markets by volume from Polymarket Gamma API...")
+        if start_date:
+            print(f"Filtering markets from {start_date} to {end_date or 'now'}")
         
         try:
             # Try different API parameters to match website behavior
@@ -113,6 +121,23 @@ class PolymarketFetcher:
                 'include_timestamps': 'true',
                 'end_date_min': int(datetime.now().timestamp())
             }
+            
+            # Add date filtering parameters if provided
+            if start_date:
+                try:
+                    start_dt = datetime.fromisoformat(start_date)
+                    params['created_at_min'] = int(start_dt.timestamp())
+                except ValueError:
+                    print(f"Warning: Invalid start_date format: {start_date}")
+            
+            if end_date:
+                try:
+                    end_dt = datetime.fromisoformat(end_date)
+                    params['created_at_max'] = int(end_dt.timestamp())
+                    # Also update end_date_min to show markets that were active during this period
+                    params['end_date_min'] = int(end_dt.timestamp())
+                except ValueError:
+                    print(f"Warning: Invalid end_date format: {end_date}")
             
             print(f"Requesting URL: {url}")
             print(f"Request parameters: {json.dumps(params, indent=2)}")

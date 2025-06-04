@@ -3,6 +3,7 @@ import os
 import json
 import traceback
 import logging
+import tempfile
 from polymarket import PolymarketFetcher
 from polymarketevents import PolymarketEventsFetcher
 
@@ -15,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# Ensure we have a writable tmp directory for serverless environment
+temp_dir = tempfile.gettempdir()
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -22,9 +26,15 @@ def index():
 @app.route('/fetch_markets', methods=['POST'])
 def fetch_markets():
     try:
+        # Set higher timeouts for serverless environment
         logger.info("Fetching top markets by volume")
         fetcher = PolymarketFetcher()
+        
+        # In a serverless environment, we need to be mindful of timeouts
+        # Log the start of the operation
+        logger.info("Starting markets API request...")
         raw_markets = fetcher.fetch_top_markets_by_volume(50)
+        logger.info(f"Received markets API response with {len(raw_markets) if raw_markets else 0} markets")
         
         if not raw_markets:
             logger.error("Failed to fetch markets data - empty response")
@@ -42,8 +52,8 @@ def fetch_markets():
         for i, market in enumerate(top_markets, 1):
             market['rank'] = i
         
-        # Save data to CSV
-        filename = "polymarket_top50.csv"
+        # Save data to CSV - use temp directory for serverless environment
+        filename = os.path.join(temp_dir, "polymarket_top50.csv")
         fetcher.save_to_csv(top_markets, filename)
         
         # Ensure required fields are present in each market
@@ -71,9 +81,15 @@ def fetch_markets():
 @app.route('/fetch_events', methods=['POST'])
 def fetch_events():
     try:
+        # Set higher timeouts for serverless environment
         logger.info("Fetching top events by volume")
         fetcher = PolymarketEventsFetcher()
+        
+        # In a serverless environment, we need to be mindful of timeouts
+        # Log the start of the operation
+        logger.info("Starting events API request...")
         raw_events = fetcher.fetch_top_events_by_volume(50)
+        logger.info(f"Received events API response with {len(raw_events) if raw_events else 0} events")
         
         if not raw_events:
             logger.error("Failed to fetch events data - empty response")
@@ -91,8 +107,8 @@ def fetch_events():
         for i, event in enumerate(top_events, 1):
             event['rank'] = i
         
-        # Save data to CSV
-        filename = "polymarket_top50_events.csv"
+        # Save data to CSV - use temp directory for serverless environment
+        filename = os.path.join(temp_dir, "polymarket_top50_events.csv")
         fetcher.save_to_csv(top_events, filename)
         
         # Ensure required fields are present in each event
@@ -126,13 +142,21 @@ def download_file(filename):
         logger.warning(f"Invalid download request for file: {filename}")
         return "File not found", 404
     
-    if not os.path.exists(filename):
-        logger.warning(f"Requested file does not exist: {filename}")
+    # Use the temp directory path for the file
+    file_path = os.path.join(temp_dir, filename)
+    
+    if not os.path.exists(file_path):
+        logger.warning(f"Requested file does not exist: {file_path}")
         return "File not available yet. Please fetch data first.", 404
     
-    logger.info(f"Serving download for file: {filename}")
-    return send_file(filename, as_attachment=True)
+    logger.info(f"Serving download for file: {file_path}")
+    return send_file(file_path, as_attachment=True)
 
+# Create a WSGI entry point for Vercel
+# The Vercel Python runtime will look for a variable called 'app'
+# which is already defined above as our Flask application
+
+# This section is only used for local development
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     host = os.environ.get("HOST", "0.0.0.0")

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polymarket Data Fetcher</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .card {
+            margin-bottom: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .btn-primary {
+            background-color: #3f51b5;
+            border-color: #3f51b5;
+        }
+        .btn-success {
+            background-color: #4caf50;
+            border-color: #4caf50;
+        }
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3f51b5;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .result-container {
+            margin-top: 30px;
+        }
+        .data-table {
+            margin-top: 20px;
+        }
+        .data-table th {
+            background-color: #3f51b5;
+            color: white;
+        }
+        .error-message {
+            color: #d32f2f;
+            font-weight: bold;
+            margin: 15px 0;
+            padding: 10px;
+            background-color: #ffebee;
+            border-radius: 5px;
+            border-left: 5px solid #d32f2f;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Polymarket Data Fetcher</h1>
+            <p class="lead">Retrieve top markets and events data from Polymarket</p>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Top Markets by Volume</h5>
+                        <p class="card-text">Fetches the top 50 markets from Polymarket sorted by volume.</p>
+                        <button id="fetchMarkets" class="btn btn-primary">Fetch Top Markets</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Top Events by Volume</h5>
+                        <p class="card-text">Fetches the top 50 events from Polymarket sorted by 24h volume.</p>
+                        <button id="fetchEvents" class="btn btn-primary">Fetch Top Events</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="loader" class="loader"></div>
+        <div id="errorContainer" class="error-message" style="display: none;"></div>
+        
+        <div id="resultContainer" class="result-container" style="display: none;">
+            <div class="alert alert-success" id="resultMessage"></div>
+            
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Results</h5>
+                    <button id="downloadBtn" class="btn btn-success">Download CSV</button>
+                    
+                    <div class="mb-3">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <label for="categoryFilter" class="form-label">Filter by Category:</label>
+                                <select id="categoryFilter" class="form-select">
+                                    <option value="all">All Categories</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="data-table">
+                        <table class="table table-striped" id="dataTable">
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Title</th>
+                                    <th>Volume</th>
+                                    <th>Category</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tableBody">
+                                <!-- Data will be inserted here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentFilename = '';
+        
+        document.getElementById('fetchMarkets').addEventListener('click', function() {
+            fetchData('/fetch_markets');
+        });
+        
+        document.getElementById('fetchEvents').addEventListener('click', function() {
+            fetchData('/fetch_events');
+        });
+        
+        document.getElementById('downloadBtn').addEventListener('click', function() {
+            if (currentFilename) {
+                window.location.href = `/download/${currentFilename}`;
+            }
+        });
+        
+        async function fetchData(endpoint) {
+            const loader = document.getElementById('loader');
+            const resultContainer = document.getElementById('resultContainer');
+            const resultMessage = document.getElementById('resultMessage');
+            const errorContainer = document.getElementById('errorContainer');
+            const tableBody = document.getElementById('tableBody');
+            
+            // Reset UI
+            loader.style.display = 'block';
+            resultContainer.style.display = 'none';
+            errorContainer.style.display = 'none';
+            
+            try {
+                // Add timeout for fetch operation
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+                
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Update result message
+                resultMessage.textContent = data.message;
+                
+                // Clear table
+                tableBody.innerHTML = '';
+                
+                // Update table with data and populate category filter
+                const items = data.markets || data.events;
+                const categoryFilter = document.getElementById('categoryFilter');
+                const categories = new Set();
+                
+                // Clear existing categories
+                while (categoryFilter.options.length > 1) {
+                    categoryFilter.remove(1);
+                }
+                
+                // First pass: collect unique categories
+                items.forEach(item => {
+                    const category = item.category || 'Uncategorized';
+                    categories.add(category);
+                });
+                
+                // Add categories to filter dropdown
+                Array.from(categories).sort().forEach(category => {
+                    const option = document.createElement('option');
+                    option.value = category;
+                    option.textContent = category;
+                    categoryFilter.appendChild(option);
+                });
+                
+                // Store the original data for filtering
+                window.currentItems = items;
+                
+                // Initial render of all items
+                renderItems(items);
+                
+                // Add filter event listener
+                categoryFilter.addEventListener('change', function() {
+                    const selectedCategory = this.value;
+                    if (selectedCategory === 'all') {
+                        renderItems(window.currentItems);
+                    } else {
+                        const filtered = window.currentItems.filter(item => 
+                            (item.category || 'Uncategorized') === selectedCategory
+                        );
+                        renderItems(filtered);
+                    }
+                });
+                
+                function renderItems(itemsToRender) {
+                    // Clear table
+                    tableBody.innerHTML = '';
+                    
+                    itemsToRender.forEach(item => {
+                        const tr = document.createElement('tr');
+                        
+                        // Rank
+                        const tdRank = document.createElement('td');
+                        tdRank.textContent = item.rank;
+                        tr.appendChild(tdRank);
+                        
+                        // Title
+                        const tdTitle = document.createElement('td');
+                        tdTitle.textContent = item.title;
+                        tr.appendChild(tdTitle);
+                        
+                        // Volume
+                        const tdVolume = document.createElement('td');
+                        tdVolume.textContent = `$${item.volume_usd.toLocaleString('en-US', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                        })}`;
+                        tr.appendChild(tdVolume);
+                        
+                        // Category
+                        const tdCategory = document.createElement('td');
+                        tdCategory.textContent = item.category || 'Uncategorized';
+                        tr.appendChild(tdCategory);
+                        
+                        // Status
+                        const tdStatus = document.createElement('td');
+                        if (item.closed || item.is_closed) {
+                            tdStatus.textContent = 'Closed';
+                        } else if (!item.active && !item.is_active) {
+                            tdStatus.textContent = 'Inactive';
+                        } else {
+                            tdStatus.textContent = 'Active';
+                        }
+                        tr.appendChild(tdStatus);
+                        
+                        tableBody.appendChild(tr);
+                    });
+                }
+                
+                // Set current filename for download
+                currentFilename = data.filename;
+                
+                // Show results
+                resultContainer.style.display = 'block';
+            } catch (error) {
+                console.error('Error:', error);
+                errorContainer.textContent = `Error: ${error.message}`;
+                errorContainer.style.display = 'block';
+                
+                // If it's an abort error (timeout)
+                if (error.name === 'AbortError') {
+                    errorContainer.textContent = 'Request timed out. The server took too long to respond. Please try again later.';
+                }
+            } finally {
+                // Hide loader
+                loader.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

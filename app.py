@@ -14,14 +14,51 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+# Determine the base directory
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_DIR = os.path.join(BASE_DIR, 'templates')
+
+# Create Flask app with explicit template directory
+app = Flask(__name__, template_folder=TEMPLATE_DIR)
+
+# Log initialization details
+logger.info(f"Flask app initialized with BASE_DIR: {BASE_DIR}")
+logger.info(f"Template directory: {TEMPLATE_DIR}")
+logger.info(f"Template directory exists: {os.path.exists(TEMPLATE_DIR)}")
+if os.path.exists(TEMPLATE_DIR):
+    logger.info(f"Template directory contents: {os.listdir(TEMPLATE_DIR)}")
 
 # Ensure we have a writable tmp directory for serverless environment
 temp_dir = tempfile.gettempdir()
+logger.info(f"Using temp directory: {temp_dir}")
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        logger.error(f"Error rendering index.html: {str(e)}")
+        logger.error(f"Template directory: {app.template_folder}")
+        logger.error(f"Available templates: {os.listdir(app.template_folder) if os.path.exists(app.template_folder) else 'Directory not found'}")
+        return jsonify({
+            "error": "Failed to render template",
+            "details": str(e),
+            "template_dir": app.template_folder,
+            "exists": os.path.exists(app.template_folder)
+        }), 500
+
+@app.route('/health')
+def health():
+    """Simple health check endpoint"""
+    return jsonify({
+        "status": "ok",
+        "message": "Polymarket Data Fetcher is running",
+        "python_version": os.sys.version,
+        "template_dir": app.template_folder,
+        "template_dir_exists": os.path.exists(app.template_folder),
+        "cwd": os.getcwd(),
+        "base_dir": BASE_DIR
+    })
 
 @app.route('/fetch_markets', methods=['POST'])
 def fetch_markets():

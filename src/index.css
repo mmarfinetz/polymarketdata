@@ -1,0 +1,228 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom terminal styles */
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-panel: #1a1a24;
+  --border: #2a2a3a;
+  --text-primary: #e8e8e8;
+  --text-secondary: #8888a0;
+  --accent-green: #00d26a;
+  --accent-red: #ff3b5c;
+  --accent-orange: #ff9500;
+  --accent-blue: #0088ff;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'JetBrains Mono', monospace;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a4a;
+}
+
+/* Selection styling */
+::selection {
+  background-color: var(--accent-blue);
+  color: white;
+}
+
+/* Table styles */
+.terminal-table {
+  @apply w-full text-sm;
+}
+
+.terminal-table th {
+  @apply text-left text-terminal-text-secondary font-medium py-2 px-3 border-b border-terminal-border;
+}
+
+.terminal-table td {
+  @apply py-2 px-3 border-b border-terminal-border/50;
+}
+
+.terminal-table tr:hover {
+  @apply bg-terminal-bg-hover;
+}
+
+/* Panel styles */
+.terminal-panel {
+  @apply bg-terminal-bg-panel border border-terminal-border rounded-lg overflow-hidden;
+}
+
+.terminal-panel-header {
+  @apply flex items-center justify-between px-4 py-2 border-b border-terminal-border bg-terminal-bg-secondary;
+}
+
+.terminal-panel-title {
+  @apply text-xs font-medium uppercase tracking-wider text-terminal-text-secondary;
+}
+
+/* Number formatting */
+.number-positive {
+  @apply text-terminal-accent-green;
+}
+
+.number-negative {
+  @apply text-terminal-accent-red;
+}
+
+/* Loading skeleton */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-secondary) 25%,
+    var(--bg-panel) 50%,
+    var(--bg-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+/* Command bar styles */
+.command-input {
+  @apply w-full bg-transparent border-none outline-none text-terminal-text-primary placeholder-terminal-text-muted;
+}
+
+/* React Grid Layout overrides */
+.react-grid-layout {
+  position: relative;
+  transition: height 200ms ease;
+}
+
+.react-grid-item {
+  transition: all 200ms ease;
+  transition-property: left, top;
+}
+
+.react-grid-item.cssTransforms {
+  transition-property: transform;
+}
+
+.react-grid-item.resizing {
+  z-index: 1;
+  will-change: width, height;
+}
+
+.react-grid-item.react-draggable-dragging {
+  transition: none;
+  z-index: 3;
+  will-change: transform;
+}
+
+.react-grid-item.dropping {
+  visibility: hidden;
+}
+
+.react-grid-item > .react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-right: 2px solid var(--border);
+  border-bottom: 2px solid var(--border);
+}
+
+.react-resizable-hide > .react-resizable-handle {
+  display: none;
+}
+
+/* Tooltip */
+.tooltip {
+  @apply absolute z-50 px-2 py-1 text-xs bg-terminal-bg-secondary border border-terminal-border rounded shadow-lg;
+}
+
+/* Focus styles */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-terminal-accent-blue focus:ring-opacity-50;
+}
+
+/* Category badges */
+.category-badge {
+  @apply inline-flex items-center px-2 py-0.5 text-xs font-medium rounded;
+}
+
+.category-politics {
+  @apply bg-blue-900/30 text-blue-400;
+}
+
+.category-economy {
+  @apply bg-yellow-900/30 text-yellow-400;
+}
+
+.category-crypto {
+  @apply bg-orange-900/30 text-orange-400;
+}
+
+.category-sports {
+  @apply bg-green-900/30 text-green-400;
+}
+
+.category-entertainment {
+  @apply bg-pink-900/30 text-pink-400;
+}
+
+.category-technology {
+  @apply bg-purple-900/30 text-purple-400;
+}
+
+.category-worldaffairs {
+  @apply bg-red-900/30 text-red-400;
+}
+
+.category-default {
+  @apply bg-terminal-bg-secondary text-terminal-text-secondary;
+}
